@@ -1,0 +1,938 @@
+#include <iostream>
+#include <vector>
+#include <cmath>
+#include <string>
+#include <iomanip>
+#include <limits>
+#include <complex>
+#include <algorithm>
+#include <functional>
+
+using namespace std;
+
+// 常量定义
+const double PI = 3.14159265358979323846;
+const double G = 9.81;                 // 重力加速度 (m/s²)
+const double C = 299792458.0;         // 光速 (m/s)
+const double k = 8.987551787e9;       // 库仑常数 (N·m²/C²)
+const double EPSILON0 = 8.854187817e-12; // 真空介电常数
+const double MU0 = 4 * PI * 1e-7;     // 真空磁导率
+const double KB = 1.380649e-23;       // 玻尔兹曼常数
+const double NA = 6.02214076e23;      // 阿伏伽德罗常数
+const double R_GAS = 8.314462618;     // 理想气体常数
+
+// 物理矢量类
+class Vector3D {
+public:
+    double x, y, z;
+    
+    Vector3D(double _x = 0, double _y = 0, double _z = 0) 
+        : x(_x), y(_y), z(_z) {}
+    
+    // 向量运算
+    Vector3D operator+(const Vector3D& v) const {
+        return Vector3D(x + v.x, y + v.y, z + v.z);
+    }
+    
+    Vector3D operator-(const Vector3D& v) const {
+        return Vector3D(x - v.x, y - v.y, z - v.z);
+    }
+    
+    Vector3D operator*(double scalar) const {
+        return Vector3D(x * scalar, y * scalar, z * scalar);
+    }
+    
+    Vector3D operator/(double scalar) const {
+        return Vector3D(x / scalar, y / scalar, z / scalar);
+    }
+    
+    // 点积
+    double dot(const Vector3D& v) const {
+        return x * v.x + y * v.y + z * v.z;
+    }
+    
+    // 叉积
+    Vector3D cross(const Vector3D& v) const {
+        return Vector3D(y * v.z - z * v.y,
+                       z * v.x - x * v.z,
+                       x * v.y - y * v.x);
+    }
+    
+    // 模长
+    double magnitude() const {
+        return sqrt(x * x + y * y + z * z);
+    }
+    
+    // 单位向量
+    Vector3D normalized() const {
+        double mag = magnitude();
+        if (mag > 0) {
+            return *this / mag;
+        }
+        return Vector3D(0, 0, 0);
+    }
+    
+    // 显示
+    void display(const string& name = "") const {
+        if (!name.empty()) {
+            cout << name << " = ";
+        }
+        cout << "(" << x << ", " << y << ", " << z << ")";
+        cout << "  |" << name << "| = " << magnitude() << endl;
+    }
+};
+
+// 质点类
+class Particle {
+public:
+    double mass;            // 质量 (kg)
+    double charge;         // 电荷 (C)
+    Vector3D position;     // 位置 (m)
+    Vector3D velocity;     // 速度 (m/s)
+    Vector3D acceleration;  // 加速度 (m/s²)
+    string name;           // 名称
+    
+    Particle(double m = 1.0, double q = 0.0, 
+             Vector3D pos = Vector3D(), Vector3D vel = Vector3D(),
+             const string& n = "")
+        : mass(m), charge(q), position(pos), velocity(vel), 
+          acceleration(Vector3D()), name(n) {}
+    
+    // 更新位置和速度 (欧拉积分)
+    void update(double dt) {
+        velocity = velocity + acceleration * dt;
+        position = position + velocity * dt;
+    }
+    
+    // 显示信息
+    void display() const {
+        cout << "\n=== 质点信息: " << (name.empty() ? "未命名" : name) << " ===" << endl;
+        cout << "质量: " << mass << " kg" << endl;
+        cout << "电荷: " << charge << " C" << endl;
+        position.display("位置");
+        velocity.display("速度");
+        acceleration.display("加速度");
+        cout << "动能: " << kineticEnergy() << " J" << endl;
+    }
+    
+    // 计算动能
+    double kineticEnergy() const {
+        return 0.5 * mass * velocity.dot(velocity);
+    }
+    
+    // 计算动量
+    Vector3D momentum() const {
+        return velocity * mass;
+    }
+};
+
+// 力学模拟系统
+class MechanicsSystem {
+private:
+    vector<Particle> particles;
+    bool gravityEnabled;
+    Vector3D gravityField;
+    
+public:
+    MechanicsSystem(bool gravity = true) 
+        : gravityEnabled(gravity), gravityField(0, 0, -G) {}
+    
+    // 添加质点
+    void addParticle(const Particle& p) {
+        particles.push_back(p);
+    }
+    
+    // 清除所有质点
+    void clearParticles() {
+        particles.clear();
+    }
+    
+    // 计算两个质点之间的万有引力
+    Vector3D calculateGravity(const Particle& p1, const Particle& p2) const {
+        Vector3D r = p2.position - p1.position;
+        double distance = r.magnitude();
+        
+        if (distance < 1e-10) {  // 避免除以零
+            return Vector3D(0, 0, 0);
+        }
+        
+        double forceMagnitude = G * p1.mass * p2.mass / (distance * distance);
+        return r.normalized() * forceMagnitude;
+    }
+    
+    // 计算两个电荷之间的库仑力
+    Vector3D calculateCoulombForce(const Particle& p1, const Particle& p2) const {
+        Vector3D r = p2.position - p1.position;
+        double distance = r.magnitude();
+        
+        if (distance < 1e-10) {  // 避免除以零
+            return Vector3D(0, 0, 0);
+        }
+        
+        double forceMagnitude = k * p1.charge * p2.charge / (distance * distance);
+        return r.normalized() * forceMagnitude;
+    }
+    
+    // 更新系统状态
+    void update(double dt) {
+        // 重置所有加速度
+        for (auto& p : particles) {
+            p.acceleration = Vector3D(0, 0, 0);
+            
+            // 重力
+            if (gravityEnabled && p.mass > 0) {
+                p.acceleration = p.acceleration + gravityField;
+            }
+        }
+        
+        // 计算粒子间相互作用
+        for (size_t i = 0; i < particles.size(); i++) {
+            for (size_t j = i + 1; j < particles.size(); j++) {
+                // 万有引力
+                Vector3D gravityForce = calculateGravity(particles[i], particles[j]);
+                particles[i].acceleration = particles[i].acceleration + gravityForce / particles[i].mass;
+                particles[j].acceleration = particles[j].acceleration - gravityForce / particles[j].mass;
+                
+                // 库仑力
+                if (abs(particles[i].charge) > 1e-10 && abs(particles[j].charge) > 1e-10) {
+                    Vector3D coulombForce = calculateCoulombForce(particles[i], particles[j]);
+                    particles[i].acceleration = particles[i].acceleration + coulombForce / particles[i].mass;
+                    particles[j].acceleration = particles[j].acceleration - coulombForce / particles[j].mass;
+                }
+            }
+        }
+        
+        // 更新每个粒子的状态
+        for (auto& p : particles) {
+            p.update(dt);
+        }
+    }
+    
+    // 计算系统总能量
+    void calculateEnergy() const {
+        double totalKinetic = 0;
+        double totalPotential = 0;
+        
+        // 计算动能
+        for (const auto& p : particles) {
+            totalKinetic += p.kineticEnergy();
+        }
+        
+        // 计算重力势能
+        for (const auto& p : particles) {
+            if (gravityEnabled) {
+                totalPotential += p.mass * G * p.position.z;  // 假设z轴向上
+            }
+        }
+        
+        // 计算势能（粒子间相互作用）
+        for (size_t i = 0; i < particles.size(); i++) {
+            for (size_t j = i + 1; j < particles.size(); j++) {
+                Vector3D r = particles[j].position - particles[i].position;
+                double distance = r.magnitude();
+                
+                if (distance > 1e-10) {
+                    // 引力势能
+                    totalPotential += -G * particles[i].mass * particles[j].mass / distance;
+                    
+                    // 电势能
+                    totalPotential += k * particles[i].charge * particles[j].charge / distance;
+                }
+            }
+        }
+        
+        cout << "\n=== 系统能量统计 ===" << endl;
+        cout << "总动能: " << totalKinetic << " J" << endl;
+        cout << "总势能: " << totalPotential << " J" << endl;
+        cout << "总机械能: " << totalKinetic + totalPotential << " J" << endl;
+    }
+    
+    // 显示系统状态
+    void display() const {
+        cout << "\n=== 力学系统状态 ===" << endl;
+        cout << "质点数量: " << particles.size() << endl;
+        cout << "重力场: " << (gravityEnabled ? "开启" : "关闭") << endl;
+        
+        for (size_t i = 0; i < particles.size(); i++) {
+            cout << "\n质点 " << i + 1 << ": ";
+            particles[i].display();
+        }
+    }
+    
+    // 获取质点数量
+    size_t getParticleCount() const { return particles.size(); }
+    
+    // 获取指定质点
+    Particle& getParticle(size_t index) { return particles[index]; }
+};
+
+// 简谐振动模拟
+class HarmonicOscillator {
+private:
+    double mass;        // 质量 (kg)
+    double k_spring;    // 弹簧系数 (N/m)
+    double position;    // 位置 (m)
+    double velocity;    // 速度 (m/s)
+    double amplitude;   // 振幅 (m)
+    double frequency;   // 频率 (Hz)
+    double phase;       // 相位 (rad)
+    
+public:
+    HarmonicOscillator(double m = 1.0, double k = 10.0, 
+                      double x0 = 0.1, double v0 = 0.0)
+        : mass(m), k_spring(k), position(x0), velocity(v0) {
+        frequency = sqrt(k / m) / (2 * PI);
+        amplitude = sqrt(x0 * x0 + (v0 * v0) / (k / m));
+        phase = atan2(v0, x0 * sqrt(k / m));
+    }
+    
+    // 更新状态
+    void update(double dt) {
+        double acceleration = -k_spring * position / mass;
+        velocity += acceleration * dt;
+        position += velocity * dt;
+    }
+    
+    // 理论解
+    void theoreticalValue(double t) {
+        double omega = sqrt(k_spring / mass);
+        double theoreticalPos = amplitude * cos(omega * t + phase);
+        double theoreticalVel = -amplitude * omega * sin(omega * t + phase);
+        
+        cout << "时间 t = " << t << " s" << endl;
+        cout << "数值解 - 位置: " << position << " m, 速度: " << velocity << " m/s" << endl;
+        cout << "理论解 - 位置: " << theoreticalPos << " m, 速度: " << theoreticalVel << " m/s" << endl;
+        cout << "误差 - 位置: " << abs(position - theoreticalPos) 
+             << " m, 速度: " << abs(velocity - theoreticalVel) << " m/s" << endl;
+    }
+    
+    // 计算能量
+    void calculateEnergy() const {
+        double kinetic = 0.5 * mass * velocity * velocity;
+        double potential = 0.5 * k_spring * position * position;
+        double total = kinetic + potential;
+        
+        cout << "动能: " << kinetic << " J" << endl;
+        cout << "势能: " << potential << " J" << endl;
+        cout << "总能量: " << total << " J" << endl;
+        cout << "能量守恒误差: " << abs(total - 0.5 * k_spring * amplitude * amplitude) << " J" << endl;
+    }
+    
+    // 显示状态
+    void display() const {
+        cout << "\n=== 简谐振动系统 ===" << endl;
+        cout << "质量: " << mass << " kg" << endl;
+        cout << "弹簧系数: " << k_spring << " N/m" << endl;
+        cout << "频率: " << frequency << " Hz" << endl;
+        cout << "周期: " << 1.0 / frequency << " s" << endl;
+        cout << "振幅: " << amplitude << " m" << endl;
+        cout << "当前位置: " << position << " m" << endl;
+        cout << "当前速度: " << velocity << " m/s" << endl;
+    }
+    
+    // 模拟一段时间
+    void simulate(double totalTime, double dt) {
+        cout << "\n开始简谐振动模拟..." << endl;
+        cout << "总时间: " << totalTime << " s, 时间步长: " << dt << " s" << endl;
+        
+        int steps = static_cast<int>(totalTime / dt);
+        cout << "\n时间\t位置\t速度\t加速度" << endl;
+        cout << "--------------------------------" << endl;
+        
+        for (int i = 0; i <= steps; i++) {
+            double t = i * dt;
+            if (i % 10 == 0) {  // 每10步输出一次
+                double acceleration = -k_spring * position / mass;
+                cout << fixed << setprecision(3) 
+                     << t << "\t" 
+                     << position << "\t" 
+                     << velocity << "\t" 
+                     << acceleration << endl;
+            }
+            update(dt);
+        }
+    }
+};
+
+// 电磁学计算器
+class ElectromagnetismCalculator {
+public:
+    // 计算点电荷电场
+    static Vector3D electricField(const Vector3D& point, const Vector3D& chargePos, double charge) {
+        Vector3D r = point - chargePos;
+        double distance = r.magnitude();
+        
+        if (distance < 1e-10) {
+            return Vector3D(0, 0, 0);
+        }
+        
+        double fieldMagnitude = k * charge / (distance * distance);
+        return r.normalized() * fieldMagnitude;
+    }
+    
+    // 计算点电荷电势
+    static double electricPotential(const Vector3D& point, const Vector3D& chargePos, double charge) {
+        Vector3D r = point - chargePos;
+        double distance = r.magnitude();
+        
+        if (distance < 1e-10) {
+            return 1e10;  // 无穷大近似
+        }
+        
+        return k * charge / distance;
+    }
+    
+    // 计算磁场（毕奥-萨伐尔定律）
+    static Vector3D magneticField(const Vector3D& point, const Vector3D& currentPos, 
+                                  const Vector3D& currentDir, double current) {
+        Vector3D r = point - currentPos;
+        double distance = r.magnitude();
+        
+        if (distance < 1e-10) {
+            return Vector3D(0, 0, 0);
+        }
+        
+        Vector3D dl = currentDir.normalized();
+        Vector3D db = dl.cross(r.normalized()) * (MU0 * current / (4 * PI * distance * distance));
+        return db;
+    }
+    
+    // 计算洛伦兹力
+    static Vector3D lorentzForce(double charge, const Vector3D& velocity, 
+                                 const Vector3D& electricField, const Vector3D& magneticField) {
+        Vector3D electricForce = electricField * charge;
+        Vector3D magneticForce = velocity.cross(magneticField) * charge;
+        return electricForce + magneticForce;
+    }
+    
+    // 计算电容
+    static double capacitanceParallelPlate(double area, double distance, double dielectric = 1.0) {
+        return dielectric * EPSILON0 * area / distance;
+    }
+    
+    // 计算电感
+    static double inductanceSolenoid(double n, double area, double length) {
+        return MU0 * n * n * area / length;
+    }
+};
+
+// 热力学系统
+class ThermodynamicsSystem {
+private:
+    double temperature;  // 温度 (K)
+    double pressure;    // 压强 (Pa)
+    double volume;      // 体积 (m³)
+    double n_moles;     // 物质的量 (mol)
+    double heatCapacity; // 热容 (J/K)
+    
+public:
+    ThermodynamicsSystem(double T = 300, double P = 101325, 
+                        double V = 0.0224, double n = 1.0)
+        : temperature(T), pressure(P), volume(V), n_moles(n) {
+        // 假设为单原子理想气体
+        heatCapacity = 1.5 * n_moles * R_GAS;
+    }
+    
+    // 理想气体状态方程
+    void updateFromIdealGas() {
+        pressure = n_moles * R_GAS * temperature / volume;
+    }
+    
+    // 等温过程
+    void isothermalProcess(double newVolume) {
+        double work = n_moles * R_GAS * temperature * log(newVolume / volume);
+        volume = newVolume;
+        updateFromIdealGas();
+        
+        cout << "\n=== 等温过程 ===" << endl;
+        cout << "做功: " << work << " J" << endl;
+        cout << "新压强: " << pressure << " Pa" << endl;
+    }
+    
+    // 绝热过程
+    void adiabaticProcess(double newVolume, double gamma = 5.0/3.0) {
+        double newTemp = temperature * pow(volume / newVolume, gamma - 1);
+        double work = heatCapacity * (temperature - newTemp);
+        
+        volume = newVolume;
+        temperature = newTemp;
+        updateFromIdealGas();
+        
+        cout << "\n=== 绝热过程 ===" << endl;
+        cout << "做功: " << work << " J" << endl;
+        cout << "新温度: " << temperature << " K" << endl;
+        cout << "新压强: " << pressure << " Pa" << endl;
+    }
+    
+    // 等压过程
+    void isobaricProcess(double newVolume) {
+        double newTemp = temperature * newVolume / volume;
+        double work = pressure * (newVolume - volume);
+        double heat = heatCapacity * (newTemp - temperature) + work;
+        
+        volume = newVolume;
+        temperature = newTemp;
+        
+        cout << "\n=== 等压过程 ===" << endl;
+        cout << "做功: " << work << " J" << endl;
+        cout << "吸热: " << heat << " J" << endl;
+        cout << "新温度: " << temperature << " K" << endl;
+    }
+    
+    // 计算内能
+    double internalEnergy() const {
+        return heatCapacity * temperature;
+    }
+    
+    // 计算熵变
+    double entropyChange(double T1, double T2, double V1, double V2) {
+        return n_moles * R_GAS * (log(V2/V1) + 1.5 * log(T2/T1));
+    }
+    
+    // 显示状态
+    void display() const {
+        cout << "\n=== 热力学系统状态 ===" << endl;
+        cout << "温度: " << temperature << " K" << endl;
+        cout << "压强: " << pressure / 1000 << " kPa" << endl;
+        cout << "体积: " << volume * 1000 << " L" << endl;
+        cout << "物质的量: " << n_moles << " mol" << endl;
+        cout << "内能: " << internalEnergy() << " J" << endl;
+        cout << "热容: " << heatCapacity << " J/K" << endl;
+    }
+};
+
+// 波函数模拟
+class WaveSimulation {
+private:
+    double amplitude;   // 振幅
+    double frequency;   // 频率 (Hz)
+    double wavelength;  // 波长 (m)
+    double phase;      // 相位
+    double speed;      // 波速 (m/s)
+    
+public:
+    WaveSimulation(double A = 1.0, double f = 1.0, double lambda = 1.0, double phi = 0.0)
+        : amplitude(A), frequency(f), wavelength(lambda), phase(phi) {
+        speed = frequency * wavelength;
+    }
+    
+    // 计算波函数
+    double waveFunction(double x, double t, bool isTraveling = true) const {
+        double k = 2 * PI / wavelength;  // 波数
+        double omega = 2 * PI * frequency;  // 角频率
+        
+        if (isTraveling) {
+            // 行波
+            return amplitude * sin(k * x - omega * t + phase);
+        } else {
+            // 驻波
+            return 2 * amplitude * sin(k * x) * cos(omega * t + phase);
+        }
+    }
+    
+    // 干涉计算
+    double interference(double x, double t, double source1_x, double source2_x, 
+                        double wavelength, double phaseDiff = 0) {
+        double distance1 = abs(x - source1_x);
+        double distance2 = abs(x - source2_x);
+        
+        double phase1 = 2 * PI * distance1 / wavelength;
+        double phase2 = 2 * PI * distance2 / wavelength + phaseDiff;
+        
+        return amplitude * sin(2 * PI * frequency * t - phase1) + 
+               amplitude * sin(2 * PI * frequency * t - phase2);
+    }
+    
+    // 多普勒效应
+    double dopplerEffect(double sourceFreq, double sourceSpeed, double observerSpeed, 
+                        double soundSpeed = 340.0) {
+        return sourceFreq * (soundSpeed + observerSpeed) / (soundSpeed - sourceSpeed);
+    }
+    
+    // 显示波参数
+    void display() const {
+        cout << "\n=== 波参数 ===" << endl;
+        cout << "振幅: " << amplitude << " m" << endl;
+        cout << "频率: " << frequency << " Hz" << endl;
+        cout << "波长: " << wavelength << " m" << endl;
+        cout << "波速: " << speed << " m/s" << endl;
+        cout << "周期: " << 1.0 / frequency << " s" << endl;
+        cout << "波数: " << 2 * PI / wavelength << " rad/m" << endl;
+        cout << "角频率: " << 2 * PI * frequency << " rad/s" << endl;
+    }
+    
+    // 模拟波的传播
+    void simulateWave(double length, double totalTime, double dx, double dt, bool isTraveling = true) {
+        cout << "\n=== 波传播模拟 ===" << endl;
+        cout << "空间范围: 0 到 " << length << " m" << endl;
+        cout << "时间范围: 0 到 " << totalTime << " s" << endl;
+        cout << "波类型: " << (isTraveling ? "行波" : "驻波") << endl;
+        
+        int xSteps = static_cast<int>(length / dx);
+        int tSteps = static_cast<int>(totalTime / dt);
+        
+        cout << "\n时间\\位置";
+        for (int i = 0; i <= 10; i++) {
+            cout << "\t" << i * length / 10;
+        }
+        cout << endl;
+        
+        for (int t = 0; t <= tSteps; t += tSteps/10) {
+            double time = t * dt;
+            cout << fixed << setprecision(2) << time;
+            
+            for (int i = 0; i <= 10; i++) {
+                double x = i * length / 10;
+                double y = waveFunction(x, time, isTraveling);
+                cout << "\t" << fixed << setprecision(3) << y;
+            }
+            cout << endl;
+        }
+    }
+};
+
+// 主菜单
+void showMainMenu() {
+    cout << "\n========== 物理模拟实验系统 ==========" << endl;
+    cout << "1. 经典力学模拟" << endl;
+    cout << "2. 简谐振动模拟" << endl;
+    cout << "3. 电磁学计算" << endl;
+    cout << "4. 热力学模拟" << endl;
+    cout << "5. 波动模拟" << endl;
+    cout << "6. 单位转换器" << endl;
+    cout << "7. 物理常数" << endl;
+    cout << "0. 退出系统" << endl;
+    cout << "======================================" << endl;
+    cout << "请选择功能 (0-7): ";
+}
+
+// 经典力学模拟菜单
+void mechanicsSimulation() {
+    MechanicsSystem system;
+    int choice;
+    
+    do {
+        cout << "\n========== 经典力学模拟 ==========" << endl;
+        cout << "1. 添加质点" << endl;
+        cout << "2. 自由落体模拟" << endl;
+        cout << "3. 抛体运动模拟" << endl;
+        cout << "4. 圆周运动模拟" << endl;
+        cout << "5. 双星系统模拟" << endl;
+        cout << "6. 带电粒子运动" << endl;
+        cout << "7. 显示系统状态" << endl;
+        cout << "8. 运行模拟" << endl;
+        cout << "9. 计算系统能量" << endl;
+        cout << "0. 返回主菜单" << endl;
+        cout << "==================================" << endl;
+        cout << "请选择操作: ";
+        cin >> choice;
+        
+        switch(choice) {
+            case 1: {
+                double mass, charge, x, y, z, vx, vy, vz;
+                string name;
+                
+                cout << "请输入质量 (kg): ";
+                cin >> mass;
+                cout << "请输入电荷 (C): ";
+                cin >> charge;
+                cout << "请输入初始位置 (x y z, 单位: m): ";
+                cin >> x >> y >> z;
+                cout << "请输入初始速度 (vx vy vz, 单位: m/s): ";
+                cin >> vx >> vy >> vz;
+                cout << "请输入质点名称: ";
+                cin >> name;
+                
+                system.addParticle(Particle(mass, charge, 
+                    Vector3D(x, y, z), Vector3D(vx, vy, vz), name));
+                cout << "质点添加成功!" << endl;
+                break;
+            }
+            case 2: {
+                system.clearParticles();
+                system.addParticle(Particle(1.0, 0.0, 
+                    Vector3D(0, 0, 100), Vector3D(0, 0, 0), "自由落体"));
+                
+                cout << "\n=== 自由落体模拟 ===" << endl;
+                cout << "时间(s)\t高度(m)\t速度(m/s)" << endl;
+                for (double t = 0; t <= 4.5; t += 0.5) {
+                    system.update(0.5);
+                    Particle& p = system.getParticle(0);
+                    cout << fixed << setprecision(1) << t << "\t"
+                         << fixed << setprecision(2) << p.position.z << "\t"
+                         << p.velocity.z << endl;
+                }
+                break;
+            }
+            case 3: {
+                system.clearParticles();
+                system.addParticle(Particle(1.0, 0.0,
+                    Vector3D(0, 0, 0), Vector3D(20, 0, 20), "抛体"));
+                
+                cout << "\n=== 抛体运动模拟 ===" << endl;
+                cout << "时间(s)\tX(m)\tY(m)\tZ(m)" << endl;
+                double t = 0;
+                while (true) {
+                    system.update(0.1);
+                    t += 0.1;
+                    Particle& p = system.getParticle(0);
+                    cout << fixed << setprecision(1) << t << "\t"
+                         << fixed << setprecision(2) 
+                         << p.position.x << "\t" 
+                         << p.position.y << "\t"
+                         << p.position.z << endl;
+                    
+                    if (p.position.z <= 0) break;
+                }
+                break;
+            }
+            case 4: {
+                system.clearParticles();
+                system.addParticle(Particle(1.0, 0.0,
+                    Vector3D(10, 0, 0), Vector3D(0, 6.28, 0), "圆周运动"));
+                
+                cout << "\n=== 圆周运动模拟 ===" << endl;
+                for (int i = 0; i < 20; i++) {
+                    system.update(0.1);
+                    Particle& p = system.getParticle(0);
+                    cout << "时间: " << fixed << setprecision(1) << i*0.1 
+                         << "s, 位置: (" << p.position.x << ", " 
+                         << p.position.y << ", " << p.position.z 
+                         << "), 速度: " << p.velocity.magnitude() << "m/s" << endl;
+                }
+                break;
+            }
+            case 5: {
+                system.clearParticles();
+                system.addParticle(Particle(5.972e24, 0.0,
+                    Vector3D(0, 0, 0), Vector3D(0, 0, 0), "地球"));
+                system.addParticle(Particle(7.348e22, 0.0,
+                    Vector3D(384400000, 0, 0), Vector3D(0, 1022, 0), "月球"));
+                
+                cout << "\n=== 地月系统模拟 ===" << endl;
+                for (int i = 0; i < 100; i++) {
+                    system.update(3600);  // 1小时步长
+                    if (i % 10 == 0) {
+                        Particle& earth = system.getParticle(0);
+                        Particle& moon = system.getParticle(1);
+                        double distance = (moon.position - earth.position).magnitude();
+                        cout << "时间: " << i << "小时, 距离: " 
+                             << distance/1000 << "km" << endl;
+                    }
+                }
+                break;
+            }
+            case 6: {
+                system.clearParticles();
+                system.addParticle(Particle(9.109e-31, -1.602e-19,
+                    Vector3D(0, 0, 0), Vector3D(1e6, 0, 0), "电子"));
+                system.addParticle(Particle(1.673e-27, 1.602e-19,
+                    Vector3D(1e-10, 0, 0), Vector3D(0, 0, 0), "质子"));
+                
+                cout << "\n=== 带电粒子运动模拟 ===" << endl;
+                for (int i = 0; i < 100; i++) {
+                    system.update(1e-15);
+                    if (i % 10 == 0) {
+                        Particle& electron = system.getParticle(0);
+                        cout << "时间: " << i << "e-15s, 电子位置: (" 
+                             << electron.position.x << ", " 
+                             << electron.position.y << ", " 
+                             << electron.position.z << ")" << endl;
+                    }
+                }
+                break;
+            }
+            case 7:
+                system.display();
+                break;
+            case 8: {
+                double dt, totalTime;
+                int steps;
+                
+                cout << "请输入时间步长 (s): ";
+                cin >> dt;
+                cout << "请输入总步数: ";
+                cin >> steps;
+                totalTime = dt * steps;
+                
+                cout << "\n开始模拟，总时间: " << totalTime << "秒，步数: " << steps << endl;
+                for (int i = 0; i < steps; i++) {
+                    system.update(dt);
+                    if (i % (steps/10) == 0) {
+                        cout << "时间: " << i*dt << "秒" << endl;
+                        for (size_t j = 0; j < system.getParticleCount(); j++) {
+                            Particle& p = system.getParticle(j);
+                            cout << "  质点" << j+1 << ": 位置(" 
+                                 << p.position.x << ", " << p.position.y 
+                                 << ", " << p.position.z << ")" << endl;
+                        }
+                    }
+                }
+                break;
+            }
+            case 9:
+                system.calculateEnergy();
+                break;
+        }
+    } while (choice != 0);
+}
+
+// 主程序
+int main() {
+    int choice;
+    
+    cout << "欢迎使用物理模拟实验系统!" << endl;
+    cout << "本系统包含经典力学、电磁学、热力学、波动等多个物理模块的模拟。" << endl;
+    
+    do {
+        showMainMenu();
+        cin >> choice;
+        
+        switch(choice) {
+            case 1:
+                mechanicsSimulation();
+                break;
+            case 2: {
+                double mass, k, x0, v0;
+                cout << "\n=== 简谐振动模拟 ===" << endl;
+                cout << "请输入质量 (kg): ";
+                cin >> mass;
+                cout << "请输入弹簧系数 (N/m): ";
+                cin >> k;
+                cout << "请输入初始位置 (m): ";
+                cin >> x0;
+                cout << "请输入初始速度 (m/s): ";
+                cin >> v0;
+                
+                HarmonicOscillator oscillator(mass, k, x0, v0);
+                oscillator.display();
+                oscillator.simulate(5.0, 0.01);
+                oscillator.theoreticalValue(2.0);
+                oscillator.calculateEnergy();
+                break;
+            }
+            case 3: {
+                ElectromagnetismCalculator emCalc;
+                int emChoice;
+                
+                do {
+                    cout << "\n=== 电磁学计算器 ===" << endl;
+                    cout << "1. 计算电场" << endl;
+                    cout << "2. 计算电势" << endl;
+                    cout << "3. 计算磁场" << endl;
+                    cout << "4. 计算洛伦兹力" << endl;
+                    cout << "5. 计算平行板电容" << endl;
+                    cout << "6. 计算螺线管电感" << endl;
+                    cout << "0. 返回" << endl;
+                    cout << "请选择: ";
+                    cin >> emChoice;
+                    
+                    if (emChoice == 1) {
+                        Vector3D point, chargePos;
+                        double charge;
+                        cout << "请输入计算点坐标 (x y z): ";
+                        cin >> point.x >> point.y >> point.z;
+                        cout << "请输入电荷位置 (x y z): ";
+                        cin >> chargePos.x >> chargePos.y >> chargePos.z;
+                        cout << "请输入电荷量 (C): ";
+                        cin >> charge;
+                        
+                        Vector3D E = emCalc.electricField(point, chargePos, charge);
+                        E.display("电场强度");
+                    } else if (emChoice == 2) {
+                        Vector3D point, chargePos;
+                        double charge;
+                        cout << "请输入计算点坐标 (x y z): ";
+                        cin >> point.x >> point.y >> point.z;
+                        cout << "请输入电荷位置 (x y z): ";
+                        cin >> chargePos.x >> chargePos.y >> chargePos.z;
+                        cout << "请输入电荷量 (C): ";
+                        cin >> charge;
+                        
+                        double V = emCalc.electricPotential(point, chargePos, charge);
+                        cout << "电势: " << V << " V" << endl;
+                    }
+                } while (emChoice != 0);
+                break;
+            }
+            case 4: {
+                ThermodynamicsSystem thermo;
+                thermo.display();
+                
+                cout << "\n=== 热力学过程模拟 ===" << endl;
+                thermo.isothermalProcess(0.0448);  // 体积加倍
+                thermo.display();
+                
+                thermo.adiabaticProcess(0.0224);   // 回到原体积
+                thermo.display();
+                
+                thermo.isobaricProcess(0.0448);    // 再次加倍
+                thermo.display();
+                break;
+            }
+            case 5: {
+                WaveSimulation wave(1.0, 2.0, 0.5, 0.0);
+                wave.display();
+                wave.simulateWave(5.0, 2.0, 0.1, 0.01, true);
+                break;
+            }
+            case 6: {
+                cout << "\n=== 物理单位转换器 ===" << endl;
+                cout << "1. 能量转换" << endl;
+                cout << "2. 长度转换" << endl;
+                cout << "3. 温度转换" << endl;
+                cout << "请选择: ";
+                
+                int convChoice;
+                cin >> convChoice;
+                
+                if (convChoice == 1) {
+                    double joules;
+                    cout << "请输入能量值 (J): ";
+                    cin >> joules;
+                    cout << joules << " J = " << joules * 6.242e18 << " eV" << endl;
+                    cout << joules << " J = " << joules * 0.239 << " cal" << endl;
+                    cout << joules << " J = " << joules * 9.478e-4 << " BTU" << endl;
+                } else if (convChoice == 2) {
+                    double meters;
+                    cout << "请输入长度值 (m): ";
+                    cin >> meters;
+                    cout << meters << " m = " << meters * 1e10 << " Å" << endl;
+                    cout << meters << " m = " << meters * 1e9 << " nm" << endl;
+                    cout << meters << " m = " << meters * 1e6 << " μm" << endl;
+                } else if (convChoice == 3) {
+                    double kelvin;
+                    cout << "请输入温度值 (K): ";
+                    cin >> kelvin;
+                    cout << kelvin << " K = " << kelvin - 273.15 << " °C" << endl;
+                    cout << kelvin << " K = " << (kelvin - 273.15) * 9/5 + 32 << " °F" << endl;
+                }
+                break;
+            }
+            case 7: {
+                cout << "\n=== 物理常数表 ===" << endl;
+                cout << "重力加速度: " << G << " m/s²" << endl;
+                cout << "光速: " << C << " m/s" << endl;
+                cout << "库仑常数: " << k << " N·m²/C²" << endl;
+                cout << "真空介电常数: " << EPSILON0 << " F/m" << endl;
+                cout << "真空磁导率: " << MU0 << " H/m" << endl;
+                cout << "玻尔兹曼常数: " << KB << " J/K" << endl;
+                cout << "阿伏伽德罗常数: " << NA << " mol⁻¹" << endl;
+                cout << "理想气体常数: " << R_GAS << " J/(mol·K)" << endl;
+                cout << "普朗克常数: 6.62607015e-34 J·s" << endl;
+                cout << "电子质量: 9.10938356e-31 kg" << endl;
+                cout << "质子质量: 1.6726219e-27 kg" << endl;
+                cout << "电子电荷: 1.60217662e-19 C" << endl;
+                break;
+            }
+            case 0:
+                cout << "\n感谢使用物理模拟实验系统，再见！" << endl;
+                break;
+            default:
+                cout << "无效选择，请重新输入！" << endl;
+                break;
+        }
+    } while (choice != 0);
+    
+    return 0;
+}
